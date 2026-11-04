@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDTI Signal Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Same look as the CDTI Angles Explorer. The two data views stay dark in both themes,
+     so the fixed greyscale reads the same whatever the page theme. */
+  :root {
+    --bg: #f6f6f3; --fg: #1c1d22; --muted: #5d606b; --line: #d9d9d3; --panel: #ffffff;
+    --focus: #0000cc; --chip-on: #ecedf9;
+    --font-display: "Spectral", Georgia, "Times New Roman", serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15161a; --fg: #e9e9ec; --muted: #a2a5b0; --line: #34363d; --panel: #1d1e23;
+      --focus: #8c93ff; --chip-on: #2a2c3d; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15161a; --fg: #e9e9ec; --muted: #a2a5b0; --line: #34363d; --panel: #1d1e23;
+    --focus: #8c93ff; --chip-on: #2a2c3d; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 14px 16px 24px; display: grid; gap: 12px; }
+  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+  .main { display: grid; gap: 12px; min-width: 0; }
+  h1 { font-family: var(--font-display); font-weight: 600; font-size: 1.6rem; line-height: 1.15; margin: 0 0 2px; }
+  header p { margin: 0; color: var(--muted); }
+  .views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .view { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  .view h2, .group h2 { margin: 0 0 2px; font-size: 1rem; font-weight: 600; }
+  .view p { margin: 0 0 6px; color: var(--muted); font-size: .8125rem; line-height: 1.35; min-height: 2.7em; }
+  canvas { display: block; width: 100%; max-width: 480px; aspect-ratio: 1; margin: 0 auto; border-radius: 4px; background: #101114; touch-action: none; }
+  #glyph { max-width: none; aspect-ratio: 4 / 3; margin-top: 6px; cursor: grab; }
+  #glyph:active { cursor: grabbing; }
+  .glyphHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .glyphHead button { margin: 0; padding: 2px 8px; font-size: .8125rem; }
+  #image { cursor: crosshair; }
+  #sphere { cursor: grab; }
+  #sphere:active { cursor: grabbing; }
+  canvas:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .scale { display: flex; align-items: center; gap: 8px; max-width: 480px; margin: 8px auto 0; font: 400 .8125rem var(--font-mono); color: var(--muted); }
+  .scale i { flex: 1; height: 10px; border-radius: 2px; background: linear-gradient(to right, #000, #fff); border: 1px solid var(--line); }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 480px; margin: 8px auto 0; font-size: .875rem; }
+  .row .out { font-family: var(--font-mono); margin-left: auto; }
+  button { font: 500 .875rem var(--font-body); color: var(--fg); background: var(--chip-on); border: 1px solid var(--line); border-radius: 5px; padding: 4px 11px; cursor: pointer; }
+  button:hover { border-color: var(--focus); }
+  .readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 16px; margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .readout div { min-width: 0; }
+  .readout dt { color: var(--muted); font-size: .8125rem; }
+  .readout dd { margin: 0; font: 500 .9375rem var(--font-mono); }
+  .controls { display: grid; gap: 12px; }
+  .group { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .ctl { display: grid; grid-template-columns: 3.9rem minmax(0, 1fr) 2.9rem; align-items: center; gap: 8px; margin-top: 6px; font-size: .875rem; }
+  .ctl output { font-family: var(--font-mono); text-align: right; }
+  .ctl input { width: 100%; margin: 0; accent-color: var(--focus); }
+  .group small { display: block; color: var(--muted); margin-top: 6px; }
+  .group button { margin-top: 8px; }
+  /* Size the views to the screen, so both views and the controls stay in sight in a live demo. */
+  canvas, .scale, .row { max-width: max(280px, min(620px, calc(100vh - 262px))); }
+  @media (max-width: 1000px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .views { grid-template-columns: minmax(0, 1fr); }
+    .view p { min-height: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CDTI Signal Explorer</h1>
+    <p>One diffusion-weighted image of a mid-ventricular short-axis slice. A voxel goes darker when the b-vector lies along a direction of fast diffusion in it, so moving the b-vector changes the whole image.</p>
+  </header>
+
+  <div class="workspace">
+  <div class="main">
+  <section class="views">
+    <div class="view">
+      <h2>Image: signal in every voxel</h2>
+      <p>Click a voxel in the wall to select it. The corner arrows show the b-vector's in-plane part.</p>
+      <canvas id="image" role="img" aria-label="Diffusion-weighted image of the left ventricular wall"></canvas>
+      <div class="scale"><span>S/S₀ = 0</span><i></i><span>1</span></div>
+    </div>
+    <div class="view">
+      <h2>Sphere: signal in the selected voxel</h2>
+      <p>Drag to move the b-vector. Same view as the image: z is out of the screen, so the rim is in-plane. Shading: the voxel's signal in each direction.</p>
+      <canvas id="sphere" tabindex="0" role="img" aria-label="b-vector direction; arrow keys nudge it"></canvas>
+      <div class="row">
+        <span>b-vector along</span>
+        <button type="button" data-g="1,0,0">x</button>
+        <button type="button" data-g="0,1,0">y</button>
+        <button type="button" data-g="0,0,1">z (through-plane)</button>
+        <span class="out" id="gOut"></span>
+      </div>
+    </div>
+  </section>
+
+  <dl class="readout">
+    <div><dt>Voxel position (x, y)</dt><dd id="rPos"></dd></div>
+    <div><dt>Depth, endo to epi</dt><dd id="rDepth"></dd></div>
+    <div><dt>(HA, IA, RA) in voxel</dt><dd id="rAngles"></dd></div>
+    <div><dt>Diffusivity along b-vector</dt><dd id="rAdc"></dd></div>
+    <div><dt>S/S₀ in voxel</dt><dd id="rS"></dd></div>
+    <div><dt>S/S₀ range in image</dt><dd id="rRange"></dd></div>
+  </dl>
+  </div>
+
+  <section class="controls">
+    <div class="group">
+      <h2>Fibre rules</h2>
+      <div class="ctl"><label for="haEndo">HA endo</label><input id="haEndo" type="range" min="-90" max="90" step="5" value="60"><output for="haEndo"></output></div>
+      <div class="ctl"><label for="haEpi">HA epi</label><input id="haEpi" type="range" min="-90" max="90" step="5" value="-60"><output for="haEpi"></output></div>
+      <small>HA changes linearly through the wall.</small>
+    </div>
+    <div class="group">
+      <h2>Rest of the tensor frame</h2>
+      <div class="ctl"><label for="ia">IA</label><input id="ia" type="range" min="-45" max="45" step="5" value="0"><output for="ia"></output></div>
+      <div class="ctl"><label for="ra">RA</label><input id="ra" type="range" min="-90" max="90" step="5" value="40"><output for="ra"></output></div>
+      <small>IA and RA are the same in every voxel.</small>
+    </div>
+    <div class="group">
+      <h2>Tensor size and b-value</h2>
+      <div class="ctl"><label for="l1">λ₁</label><input id="l1" type="range" min="0" max="2.5" step="0.05" value="1.7"><output for="l1"></output></div>
+      <div class="ctl"><label for="l2">λ₂</label><input id="l2" type="range" min="0" max="2.5" step="0.05" value="1.0"><output for="l2"></output></div>
+      <div class="ctl"><label for="l3">λ₃</label><input id="l3" type="range" min="0" max="2.5" step="0.05" value="0.5"><output for="l3"></output></div>
+      <div class="ctl"><label for="b">b</label><input id="b" type="range" min="0" max="1500" step="50" value="500"><output for="b"></output></div>
+      <small>λ in 10⁻³ mm²/s, b in s/mm². Default values are illustrative.</small>
+      <button type="button" id="equal23">Set λ₂ = λ₃ (RA then has no effect)</button>
+    </div>
+    <div class="group">
+      <div class="glyphHead"><h2>Tensor in the selected voxel</h2><button type="button" id="resetView">Reset</button></div>
+      <canvas id="glyph" tabindex="0" role="img" aria-label="The selected voxel's tensor as a superquadric glyph; drag or use arrow keys to rotate it"></canvas>
+      <small>Superquadric glyph: it reaches λ along each eigenvector. Drag to rotate.</small>
+    </div>
+  </section>
+  </div>
+</div>
+
+<script>
+// BEGIN signal_math
+// Pure maths, no drawing. Checked by tests/test_math.js.
+// Image frame: x, y in the slice, z through it, along the LV long axis towards the base.
+const DEG = Math.PI / 180;
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const norm = (a) => scale(a, 1 / Math.hypot(a[0], a[1], a[2]));
+
+// The equator of the Figure 1 spheroid (LV_coords_ps.py): cavity diameter 38 mm, wall 10 mm.
+const R_ENDO = 19, R_EPI = 29;
+// In-plane voxel size typical of in vivo cardiac DTI; 32 x 32 voxels gives an 80 mm field of view.
+const VOXEL_MM = 2.5, N = 32;
+
+// Same forward model as the CDTI Angles Explorer, in the local frame r, c, l:
+// V = Rf(HA, IA) R_roll(RA).
+function makeFibre(HA, IA, RA) {
+  const ha = HA * DEG, ia = IA * DEG, ra = RA * DEG;
+  const e1 = [Math.sin(ia), Math.cos(ia) * Math.cos(ha), Math.cos(ia) * Math.sin(ha)];
+  const vcm = [0, -Math.sin(ha), Math.cos(ha)];
+  const vrad = cross(e1, vcm);
+  const e2 = add(scale(vcm, Math.cos(ra)), scale(vrad, Math.sin(ra)));
+  const e3 = add(scale(vcm, -Math.sin(ra)), scale(vrad, Math.cos(ra)));
+  return { e1, e2, e3 };
+}
+
+// Local frame at in-plane position (x, y): radial outwards, c = l x r, l through the slice.
+function localFrame(x, y) {
+  const rho = Math.hypot(x, y);
+  const r = [x / rho, y / rho, 0];
+  return { r, c: [-r[1], r[0], 0], l: [0, 0, 1] };
+}
+
+// The wall voxels of the grid: a voxel is in the wall if its centre is. depth is 0 at endo, 1 at epi.
+function wallVoxels() {
+  const voxels = [];
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = (i + 0.5 - N / 2) * VOXEL_MM, y = (j + 0.5 - N / 2) * VOXEL_MM;
+      const rho = Math.hypot(x, y);
+      if (rho >= R_ENDO && rho <= R_EPI) voxels.push({ i, j, x, y, depth: (rho - R_ENDO) / (R_EPI - R_ENDO) });
+    }
+  }
+  return voxels;
+}
+
+// The eigenvectors of one voxel in image coordinates, and its angles, under the rules.
+function voxelTensor(voxel, rules) {
+  const HA = rules.haEndo + voxel.depth * (rules.haEpi - rules.haEndo);
+  const local = makeFibre(HA, rules.ia, rules.ra);
+  const { r, c, l } = localFrame(voxel.x, voxel.y);
+  const toImage = (v) => add(add(scale(r, v[0]), scale(c, v[1])), scale(l, v[2]));
+  return { HA, IA: rules.ia, RA: rules.ra, e1: toImage(local.e1), e2: toImage(local.e2), e3: toImage(local.e3) };
+}
+
+// Diffusivity along unit vector g, in the units of lambdas: g^T D g.
+function diffusivity(tensor, lambdas, g) {
+  const a = dot(g, tensor.e1), b = dot(g, tensor.e2), c = dot(g, tensor.e3);
+  return lambdas[0] * a * a + lambdas[1] * b * b + lambdas[2] * c * c;
+}
+
+// S/S0 = exp(-b g^T D g), with b in s/mm^2 and lambdas in 10^-3 mm^2/s.
+function signal(tensor, lambdas, g, b) {
+  return Math.exp(-b * 1e-3 * diffusivity(tensor, lambdas, g));
+}
+
+// The glyph's semi-axes: lambda / LAMBDA_MAX along the eigenvectors, so the largest allowed eigenvalue
+// reaches 1. Very small eigenvalues are held at a thin slab so it stays drawable.
+const LAMBDA_MAX = 2.5;
+function glyphSemiAxes(lambdas) {
+  return lambdas.map((value) => Math.max(value, 0.05) / LAMBDA_MAX);
+}
+
+// Superquadric tensor glyph (Kindlmann 2004). The shape follows the anisotropy: a cylinder for linear
+// tensors, a disc for planar ones, a sphere for isotropic ones, and a rounded box in between. Its
+// axis of symmetry is e1 if linear and e3 if planar. Exponents of 1 give an ellipsoid; smaller is boxier.
+const GLYPH_SHARPNESS = 3, GLYPH_MIN_EXPONENT = 0.02;
+function superquadricShape(lambdas, gamma = GLYPH_SHARPNESS) {
+  const [l1, l2, l3] = glyphSemiAxes(lambdas), sum = l1 + l2 + l3;
+  const cl = (l1 - l2) / sum, cp = 2 * (l2 - l3) / sum;
+  const linear = cl >= cp;
+  const exponent = (c) => Math.max(GLYPH_MIN_EXPONENT, Math.pow(1 - c, gamma));
+  return { linear, alpha: exponent(linear ? cp : cl), beta: exponent(linear ? cl : cp) };
+}
+
+// A point on the unit superquadric in (e1, e2, e3) coordinates, for theta in [0, 2 pi], phi in [0, pi].
+// Rounding noise such as cos(pi / 2) counts as 0: a tiny power would otherwise lift it to near 1.
+const signedPower = (x, p) => (Math.abs(x) < 1e-12 ? 0 : Math.sign(x) * Math.pow(Math.abs(x), p));
+function superquadricPoint(shape, theta, phi) {
+  const { alpha, beta, linear } = shape;
+  const ring = signedPower(Math.sin(phi), beta), along = signedPower(Math.cos(phi), beta);
+  const a = signedPower(Math.cos(theta), alpha) * ring, b = signedPower(Math.sin(theta), alpha) * ring;
+  return linear ? [along, -b, a] : [a, b, along];
+}
+
+// The implicit form: 1 on the unit superquadric's surface, for q in (e1, e2, e3) coordinates.
+function superquadricValue(shape, q) {
+  const { alpha, beta, linear } = shape;
+  const [p, r, axis] = linear ? [q[1], q[2], q[0]] : [q[0], q[1], q[2]];
+  const across = Math.pow(Math.abs(p), 2 / alpha) + Math.pow(Math.abs(r), 2 / alpha);
+  return Math.pow(across, alpha / beta) + Math.pow(Math.abs(axis), 2 / beta);
+}
+
+// How far the unit vector d (in (e1, e2, e3) coordinates) goes before leaving the glyph. Scaled by the
+// largest component first, so high powers cannot underflow.
+function superquadricReach(shape, semi, d) {
+  const q = d.map((value, k) => value / semi[k]);
+  const largest = Math.max(...q.map(Math.abs));
+  return 1 / (largest * Math.pow(superquadricValue(shape, q.map((value) => value / largest)), shape.beta / 2));
+}
+
+// A view from azimuth az and elevation el (degrees): u right, v up, w towards the viewer, with z
+// up the screen. az = 0, el = 90 looks straight down z with x right and y up, like the image.
+function viewBasis(az, el) {
+  const a = az * DEG, e = el * DEG;
+  const u = [Math.cos(a), Math.sin(a), 0];
+  const w = [Math.cos(e) * Math.sin(a), -Math.cos(e) * Math.cos(a), Math.sin(e)];
+  return { u, v: cross(w, u), w };
+}
+const toView = (vector, basis) => [dot(vector, basis.u), dot(vector, basis.v), dot(vector, basis.w)];
+
+// END signal_math
+
+const $ = (id) => document.getElementById(id);
+const voxels = wallVoxels();
+let selected = voxels.find((v) => v.i === 25 && v.j === 16);  // mid-wall, on the +x side
+let g = norm([1, 0, 0]);
+
+// The sphere's fixed view is the same as the image's: x right, y up, z out of the screen. The rim is
+// the image plane and the centre is through-plane. g and -g give the same signal, so the visible
+// half reaches every distinct direction.
+const U = [1, 0, 0], V = [0, 1, 0], W = [0, 0, 1];
+const AXIS_COLORS = { e1: "#ff6b5e", e2: "#5ee08a", e3: "#6eb5ff" };
+
+function params() {
+  return {
+    rules: { haEndo: +$("haEndo").value, haEpi: +$("haEpi").value, ia: +$("ia").value, ra: +$("ra").value },
+    lambdas: [+$("l1").value, +$("l2").value, +$("l3").value],
+    b: +$("b").value,
+  };
+}
+
+// Size a canvas's backing store to its displayed size and return its pixel width.
+function fit(canvas) {
+  const size = Math.max(1, Math.round(canvas.clientWidth * (window.devicePixelRatio || 1)));
+  if (canvas.width !== size || canvas.height !== size) { canvas.width = size; canvas.height = size; }
+  return size;
+}
+
+function grey(s) {
+  const level = Math.round(Math.max(0, Math.min(1, s)) * 255);
+  return `rgb(${level},${level},${level})`;
+}
+
+function drawImage(p) {
+  const canvas = $("image"), size = fit(canvas), ctx = canvas.getContext("2d");
+  const cell = size / N, px = size / 480;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
+
+  let lo = Infinity, hi = -Infinity;
+  for (const voxel of voxels) {
+    const s = signal(voxelTensor(voxel, p.rules), p.lambdas, g, p.b);
+    lo = Math.min(lo, s); hi = Math.max(hi, s);
+    ctx.fillStyle = grey(s);
+    // Rows flipped so +y is up. Whole-pixel edges keep the voxels crisp.
+    const x0 = Math.round(voxel.i * cell), x1 = Math.round((voxel.i + 1) * cell);
+    const y0 = Math.round((N - 1 - voxel.j) * cell), y1 = Math.round((N - voxel.j) * cell);
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
+
+  // The voxel grid, faint over the background so it reads as an image grid.
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let k = 1; k < N; k++) {
+    const at = Math.round(k * cell) + 0.5;
+    ctx.moveTo(at, 0); ctx.lineTo(at, size);
+    ctx.moveTo(0, at); ctx.lineTo(size, at);
+  }
+  ctx.stroke();
+
+  // Selected voxel.
+  ctx.strokeStyle = "#ffb000";
+  ctx.lineWidth = Math.max(2, 2.5 * px);
+  ctx.strokeRect(selected.i * cell, (N - 1 - selected.j) * cell, cell, cell);
+
+  // The b-vector's in-plane part, at the top right, both ways since g and -g are equivalent.
+  // Its length shows how in-plane g is.
+  const cx = size - 40 * px, cy = 40 * px, reach = 28 * px;
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = Math.max(1, px);
+  ctx.beginPath(); ctx.arc(cx, cy, reach, 0, 2 * Math.PI); ctx.stroke();
+  arrow(ctx, cx, cy, cx + g[0] * reach, cy - g[1] * reach, "#ffb000", 2.5 * px);
+  arrow(ctx, cx, cy, cx - g[0] * reach, cy + g[1] * reach, "#ffb000", 2.5 * px);
+
+  // Image axes, at the bottom left.
+  const ox = 16 * px, oy = size - 16 * px, len = 30 * px;
+  arrow(ctx, ox, oy, ox + len, oy, "#c9c9c9", 1.5 * px);
+  arrow(ctx, ox, oy, ox, oy - len, "#c9c9c9", 1.5 * px);
+  label(ctx, "x", ox + len + 7 * px, oy, "#c9c9c9", px);
+  label(ctx, "y", ox, oy - len - 8 * px, "#c9c9c9", px);
+  return { lo, hi };
+}
+
+function arrow(ctx, x0, y0, x1, y1, color, width) {
+  ctx.strokeStyle = ctx.fillStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  const length = Math.hypot(x1 - x0, y1 - y0);
+  if (length < 3 * width) return;
+  const a = Math.atan2(y1 - y0, x1 - x0), head = 3.2 * width;
+  ctx.beginPath();
+  ctx.moveTo(x1 + Math.cos(a) * head * 0.4, y1 + Math.sin(a) * head * 0.4);
+  ctx.lineTo(x1 - Math.cos(a - 0.5) * head, y1 - Math.sin(a - 0.5) * head);
+  ctx.lineTo(x1 - Math.cos(a + 0.5) * head, y1 - Math.sin(a + 0.5) * head);
+  ctx.closePath(); ctx.fill();
+}
+
+function label(ctx, text, x, y, color, px, background) {
+  ctx.font = `600 ${Math.round(15 * px)}px "IBM Plex Sans", system-ui, sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  if (background) {
+    const w = ctx.measureText(text).width + 7 * px, h = 19 * px;
+    ctx.fillStyle = background;
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+const SPHERE_RADIUS = 0.44;  // as a fraction of the canvas
+const sphereGeometry = (size) => ({ c: size / 2, radius: size * SPHERE_RADIUS });
+const project = (v, c, radius) => [c + dot(v, U) * radius, c - dot(v, V) * radius];
+
+// The shaded signal only depends on the tensor, b and canvas size, so reuse it while g moves.
+const shadeLayer = document.createElement("canvas");
+let shadeKey = "";
+
+function shadeSphere(size, tensor, lambdas, b) {
+  const key = JSON.stringify([size, selected.i, selected.j, tensor.HA, tensor.IA, tensor.RA, lambdas, b]);
+  if (key === shadeKey) return;
+  shadeKey = key;
+  shadeLayer.width = shadeLayer.height = size;
+  const ctx = shadeLayer.getContext("2d"), image = ctx.createImageData(size, size);
+  const { c, radius } = sphereGeometry(size);
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      const sx = (px + 0.5 - c) / radius, sy = (c - py - 0.5) / radius, rr = sx * sx + sy * sy;
+      if (rr > 1) continue;
+      const d = Math.sqrt(1 - rr);
+      const n = [U[0] * sx + V[0] * sy + W[0] * d, U[1] * sx + V[1] * sy + W[1] * d, U[2] * sx + V[2] * sy + W[2] * d];
+      const level = Math.round(signal(tensor, lambdas, n, b) * 255), at = 4 * (py * size + px);
+      image.data[at] = image.data[at + 1] = image.data[at + 2] = level;
+      image.data[at + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+function drawSphere(p, tensor) {
+  const canvas = $("sphere"), size = fit(canvas), ctx = canvas.getContext("2d");
+  const { c, radius } = sphereGeometry(size), px = size / 480;
+  ctx.fillStyle = "#101114";
+  ctx.fillRect(0, 0, size, size);
+  shadeSphere(size, tensor, p.lambdas, p.b);
+  ctx.drawImage(shadeLayer, 0, 0);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.lineWidth = Math.max(1, px);
+  ctx.beginPath(); ctx.arc(c, c, radius, 0, 2 * Math.PI); ctx.stroke();
+
+  // The tensor's axes, then the image axes on top: x and y on the rim, z at the centre.
+  for (const name of ["e1", "e2", "e3"]) {
+    const v = dot(tensor[name], W) < 0 ? scale(tensor[name], -1) : tensor[name];
+    const [x, y] = project(v, c, radius);
+    ctx.strokeStyle = AXIS_COLORS[name];
+    ctx.lineWidth = 2 * px;
+    ctx.beginPath(); ctx.moveTo(c, c); ctx.lineTo(x, y); ctx.stroke();
+    label(ctx, name, x, y, AXIS_COLORS[name], px, "rgba(0,0,0,0.78)");
+  }
+  for (const [name, v] of [["x", [1, 0, 0]], ["y", [0, 1, 0]], ["z", [0, 0, 1]]]) {
+    const [x, y] = project(scale(v, 1.11), c, radius);
+    label(ctx, name, x, y, "#ffffff", px, "rgba(0,0,0,0.7)");
+  }
+
+  // The b-vector, on the visible side (-g gives the same signal).
+  const shown = dot(g, W) < 0 ? scale(g, -1) : g;
+  const [gx, gy] = project(shown, c, radius);
+  arrow(ctx, c, c, gx, gy, "#ffb000", 3 * px);
+  ctx.beginPath(); ctx.arc(gx, gy, 9 * px, 0, 2 * Math.PI);
+  ctx.fillStyle = grey(signal(tensor, p.lambdas, shown, p.b));
+  ctx.fill();
+  ctx.strokeStyle = "#ffb000";
+  ctx.lineWidth = 3 * px;
+  ctx.stroke();
+}
+
+// The 3D glyph: the selected voxel's tensor as a superquadric that can be rotated.
+const DEFAULT_VIEW = { az: -30, el: 25 };
+let view = { ...DEFAULT_VIEW };
+const GLYPH_LIGHT = norm([-0.35, 0.45, 0.82]);
+const glyphLayer = document.createElement("canvas");
+let glyphKey = "";
+
+// Draw the superquadric as a mesh in its own layer. It is convex and centred on the origin, so only
+// faces turned towards the viewer are drawn and their order does not matter.
+const GLYPH_THETA = 72, GLYPH_PHI = 36;
+function shadeGlyph(width, height, reach, axes, semi, shape) {
+  const key = JSON.stringify([width, height, axes, semi]);
+  if (key === glyphKey) return;
+  glyphKey = key;
+  glyphLayer.width = width; glyphLayer.height = height;
+  const ctx = glyphLayer.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  ctx.lineWidth = 0.7;
+  ctx.lineJoin = "round";
+  const cx = width / 2, cy = height / 2;
+  const grid = [];
+  for (let j = 0; j <= GLYPH_PHI; j++) {
+    const row = [];
+    for (let i = 0; i <= GLYPH_THETA; i++) {
+      const q = superquadricPoint(shape, 2 * Math.PI * i / GLYPH_THETA, Math.PI * j / GLYPH_PHI);
+      row.push(axes.reduce((sum, e, k) => add(sum, scale(e, q[k] * semi[k])), [0, 0, 0]));
+    }
+    grid.push(row);
+  }
+  const face = (a, b, c) => {
+    let n = cross([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+    const size = Math.hypot(n[0], n[1], n[2]);
+    if (size < 1e-12) return;
+    n = scale(n, 1 / size);
+    if (dot(n, add(add(a, b), c)) < 0) n = scale(n, -1);  // outwards
+    if (n[2] <= 0) return;
+    const light = 0.22 + 0.78 * Math.max(0, dot(n, GLYPH_LIGHT));
+    const color = `rgb(${Math.round(150 * light)},${Math.round(190 * light)},${Math.round(235 * light)})`;
+    ctx.fillStyle = ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx + a[0] * reach, cy - a[1] * reach);
+    ctx.lineTo(cx + b[0] * reach, cy - b[1] * reach);
+    ctx.lineTo(cx + c[0] * reach, cy - c[1] * reach);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();  // closes the hairline seams between faces
+  };
+  for (let j = 0; j < GLYPH_PHI; j++) {
+    for (let i = 0; i < GLYPH_THETA; i++) {
+      face(grid[j][i], grid[j][i + 1], grid[j + 1][i]);
+      face(grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]);
+    }
+  }
+}
+
+function drawGlyph(p, tensor) {
+  const canvas = $("glyph"), ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(canvas.clientWidth * ratio)), height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+  const ctx = canvas.getContext("2d"), px = height / 240;
+  const cx = width / 2, cy = height / 2, reach = Math.min(width, height) * 0.39;
+  ctx.fillStyle = "#101114";
+  ctx.fillRect(0, 0, width, height);
+
+  const basis = viewBasis(view.az, view.el);
+  const semi = glyphSemiAxes(p.lambdas);
+  const shape = superquadricShape(p.lambdas);
+  const axes = [tensor.e1, tensor.e2, tensor.e3].map((e) => toView(e, basis));
+  const gView = toView(g, basis);
+  const at = (vector, length) => [cx + vector[0] * length * reach, cy - vector[1] * length * reach];
+
+  // Each line runs outwards from where it leaves the surface, so depth decides what hides it.
+  const lines = [];
+  ["e1", "e2", "e3"].forEach((name, k) => {
+    for (const sign of [1, -1]) {
+      lines.push({ name, color: AXIS_COLORS[name], width: 2, dir: scale(axes[k], sign), from: semi[k], to: semi[k] + 0.2 });
+    }
+  });
+  const leave = superquadricReach(shape, semi, axes.map((e) => dot(gView, e)));
+  for (const sign of [1, -1]) {
+    lines.push({ name: "g", color: "#ffb000", width: 2.5, dir: scale(gView, sign), from: leave, to: Math.max(leave + 0.12, 1.15) });
+  }
+  const drawLine = (line) => {
+    const [x0, y0] = at(line.dir, line.from), [x1, y1] = at(line.dir, line.to);
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = line.width * px;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  };
+  lines.filter((line) => line.dir[2] < 0).forEach(drawLine);
+  shadeGlyph(width, height, reach, axes, semi, shape);
+  ctx.drawImage(glyphLayer, 0, 0);
+  lines.filter((line) => line.dir[2] >= 0).forEach(drawLine);
+  for (const line of lines.filter((item) => item.dir[2] >= 0 && !(item.dir[2] === 0 && item.dir[0] < 0))) {
+    const [x, y] = at(line.dir, line.to + 0.09);
+    label(ctx, line.name, x, y, line.color, px, "rgba(0,0,0,0.72)");
+  }
+
+  // Image axes in this view, at the bottom left.
+  const ox = 26 * px, oy = height - 26 * px, size = 19 * px;
+  for (const [name, axis] of [["x", [1, 0, 0]], ["y", [0, 1, 0]], ["z", [0, 0, 1]]]) {
+    const v = toView(axis, basis);
+    arrow(ctx, ox, oy, ox + v[0] * size, oy - v[1] * size, "#c9c9c9", 1.25 * px);
+    label(ctx, name, ox + v[0] * (size + 8 * px), oy - v[1] * (size + 8 * px), "#c9c9c9", px * 0.8);
+  }
+}
+
+function render() {
+  const p = params();
+  const tensor = voxelTensor(selected, p.rules);
+  const { lo, hi } = drawImage(p);
+  drawSphere(p, tensor);
+  drawGlyph(p, tensor);
+  const degrees = (a) => `${Math.round(a)}°`;
+  for (const id of ["haEndo", "haEpi", "ia", "ra"]) document.querySelector(`output[for=${id}]`).textContent = `${$(id).value}°`;
+  for (const id of ["l1", "l2", "l3"]) document.querySelector(`output[for=${id}]`).textContent = (+$(id).value).toFixed(2);
+  document.querySelector("output[for=b]").textContent = $("b").value;
+  $("gOut").textContent = `g = (${g.map((v) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)).join(", ")})`;
+  $("rPos").textContent = `${selected.x.toFixed(1)}, ${selected.y.toFixed(1)} mm`;
+  $("rDepth").textContent = `${Math.round(selected.depth * 100)}%`;
+  $("rAngles").textContent = `${degrees(tensor.HA)}, ${degrees(tensor.IA)}, ${degrees(tensor.RA)}`;
+  $("rAdc").textContent = `${diffusivity(tensor, p.lambdas, g).toFixed(2)} ×10⁻³ mm²/s`;
+  $("rS").textContent = signal(tensor, p.lambdas, g, p.b).toFixed(3);
+  $("rRange").textContent = `${lo.toFixed(3)} to ${hi.toFixed(3)}`;
+}
+
+// Inputs. The eigenvalues stay ordered: moving one pushes its neighbours along.
+for (const id of ["haEndo", "haEpi", "ia", "ra", "b"]) $(id).addEventListener("input", render);
+const lambdaIds = ["l1", "l2", "l3"];
+lambdaIds.forEach((id, k) => {
+  $(id).addEventListener("input", () => {
+    const value = +$(id).value;
+    lambdaIds.forEach((other, m) => {
+      if ((m < k && +$(other).value < value) || (m > k && +$(other).value > value)) $(other).value = value;
+    });
+    render();
+  });
+});
+$("equal23").addEventListener("click", () => {
+  const steps = Math.round((+$("l2").value + +$("l3").value) / 2 / 0.05);
+  $("l2").value = $("l3").value = (steps * 0.05).toFixed(2);
+  render();
+});
+document.querySelectorAll("button[data-g]").forEach((button) => {
+  button.addEventListener("click", () => { g = button.dataset.g.split(",").map(Number); render(); });
+});
+
+// Dragging the sphere: the pointer picks the point under it, clamped to the rim.
+function setGFromPointer(event) {
+  const canvas = $("sphere"), box = canvas.getBoundingClientRect();
+  const c = box.width / 2, radius = box.width * SPHERE_RADIUS;
+  let sx = (event.clientX - box.left - c) / radius, sy = (c - (event.clientY - box.top)) / radius;
+  const rho = Math.hypot(sx, sy);
+  if (rho > 1) { sx /= rho; sy /= rho; }
+  const d = Math.sqrt(Math.max(0, 1 - sx * sx - sy * sy));
+  g = norm(add(add(scale(U, sx), scale(V, sy)), scale(W, d)));
+  render();
+}
+const sphereCanvas = $("sphere");
+sphereCanvas.addEventListener("pointerdown", (event) => {
+  sphereCanvas.setPointerCapture(event.pointerId);
+  setGFromPointer(event);
+});
+sphereCanvas.addEventListener("pointermove", (event) => {
+  if (sphereCanvas.hasPointerCapture(event.pointerId)) setGFromPointer(event);
+});
+sphereCanvas.addEventListener("keydown", (event) => {
+  const nudge = { ArrowLeft: [U, -1], ArrowRight: [U, 1], ArrowUp: [V, 1], ArrowDown: [V, -1] }[event.key];
+  if (!nudge) return;
+  event.preventDefault();
+  g = norm(add(g, scale(nudge[0], nudge[1] * 0.05)));
+  render();
+});
+
+// Dragging the glyph rotates the view around it; z stays up the screen.
+const glyphCanvas = $("glyph");
+let dragFrom = null;
+function turn(dAz, dEl) {
+  view.az = (view.az + dAz) % 360;
+  view.el = Math.max(-90, Math.min(90, view.el + dEl));
+  render();
+}
+glyphCanvas.addEventListener("pointerdown", (event) => {
+  glyphCanvas.setPointerCapture(event.pointerId);
+  dragFrom = [event.clientX, event.clientY];
+});
+glyphCanvas.addEventListener("pointermove", (event) => {
+  if (!dragFrom) return;
+  const [x, y] = dragFrom;
+  dragFrom = [event.clientX, event.clientY];
+  turn(-(event.clientX - x) * 0.7, (event.clientY - y) * 0.7);
+});
+glyphCanvas.addEventListener("pointerup", () => { dragFrom = null; });
+glyphCanvas.addEventListener("pointercancel", () => { dragFrom = null; });
+glyphCanvas.addEventListener("keydown", (event) => {
+  const step = { ArrowLeft: [5, 0], ArrowRight: [-5, 0], ArrowUp: [0, -5], ArrowDown: [0, 5] }[event.key];
+  if (!step) return;
+  event.preventDefault();
+  turn(step[0], step[1]);
+});
+$("resetView").addEventListener("click", () => { view = { ...DEFAULT_VIEW }; render(); });
+
+// Clicking a wall voxel selects it; clicks elsewhere do nothing.
+$("image").addEventListener("click", (event) => {
+  const box = event.currentTarget.getBoundingClientRect();
+  const i = Math.floor((event.clientX - box.left) / box.width * N);
+  const j = N - 1 - Math.floor((event.clientY - box.top) / box.height * N);
+  const hit = voxels.find((v) => v.i === i && v.j === j);
+  if (hit) { selected = hit; render(); }
+});
+
+new ResizeObserver(render).observe($("image"));
+render();
+</script>
+</body>
+</html>
