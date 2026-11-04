@@ -481,7 +481,8 @@ function drawSphere(p, tensor) {
 }
 
 // The 3D glyph: the selected voxel's tensor as a superquadric that can be rotated.
-const DEFAULT_VIEW = { az: -30, el: 25 };
+// The same frame as the image and the sphere: x right, y up, z out of the screen.
+const DEFAULT_VIEW = { az: 0, el: 90 };
 let view = { ...DEFAULT_VIEW };
 const GLYPH_LIGHT = norm([-0.35, 0.45, 0.82]);
 const glyphLayer = document.createElement("canvas");
