@@ -3,8 +3,8 @@
 
 const html = await Deno.readTextFile(new URL("../index.html", import.meta.url));
 const block = html.split("// BEGIN signal_math")[1].split("// END signal_math")[0];
-const { makeFibre, localFrame, wallVoxels, voxelTensor, diffusivity, signal, dot, cross, glyphSemiAxes, superquadricShape, superquadricPoint, superquadricValue, superquadricReach, viewBasis, toView, DEG } = new Function(
-  block + "\nreturn { makeFibre, localFrame, wallVoxels, voxelTensor, diffusivity, signal, dot, cross, glyphSemiAxes, superquadricShape, superquadricPoint, superquadricValue, superquadricReach, viewBasis, toView, DEG };",
+const { makeFibre, localFrame, wallVoxels, voxelTensor, diffusivity, signal, dot, cross, glyphSemiAxes, superquadricShape, superquadricPoint, superquadricValue, superquadricReach, viewBasis, toView, directionColor, DEG } = new Function(
+  block + "\nreturn { makeFibre, localFrame, wallVoxels, voxelTensor, diffusivity, signal, dot, cross, glyphSemiAxes, superquadricShape, superquadricPoint, superquadricValue, superquadricReach, viewBasis, toView, directionColor, DEG };",
 )();
 
 let failed = 0;
@@ -144,6 +144,16 @@ check("views are right-handed and orthonormal", [[-30, 25], [120, -40], [200, 80
   return closeVec(cross(b.u, b.v), b.w) && close(dot(b.u, b.u), 1) && close(dot(b.v, b.v), 1);
 }));
 check("z points up the screen in an ordinary view", viewBasis(-30, 25).v[2] > 0 && close(viewBasis(-30, 25).u[2], 0));
+
+// Direction colours, and the pattern they should show with HA +60 to -60, IA 0.
+check("x, y and z are pure red, green and blue", closeVec(directionColor([1, 0, 0]), [255, 0, 0]) && closeVec(directionColor([0, 1, 0]), [0, 255, 0]) && closeVec(directionColor([0, 0, 1]), [0, 0, 255]));
+check("e and -e have the same colour", closeVec(directionColor([0.6, -0.48, 0.64]), directionColor([-0.6, 0.48, -0.64])));
+const flatRules = { haEndo: 60, haEpi: -60, ia: 0, ra: 40 };
+const colourAt = (x, y, depth) => directionColor(voxelTensor({ x, y, depth }, flatRules).e1);
+const dominant = (rgb) => rgb.indexOf(Math.max(...rgb));
+check("e1 map: mid-wall top and bottom are red", dominant(colourAt(0, 24, 0.5)) === 0 && dominant(colourAt(0, -24, 0.5)) === 0);
+check("e1 map: mid-wall sides are green", dominant(colourAt(24, 0, 0.5)) === 1 && dominant(colourAt(-24, 0, 0.5)) === 1);
+check("e1 map: endo and epi are mostly blue", dominant(colourAt(0, 19, 0)) === 2 && dominant(colourAt(0, 29, 1)) === 2);
 
 console.log(failed ? `${failed} FAILED` : "ALL PASS");
 if (failed) Deno.exit(1);

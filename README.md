@@ -15,6 +15,7 @@ Open `index.html` in a browser. It is one self-contained file and works offline,
   2.5 mm voxels. The slice is perpendicular to the LV long axis.
 - Tensor: `makeFibre(HA, IA, RA)`, the same forward model as the CDTI Angles Explorer.
 - Tensor glyph: the selected voxel's tensor as a rotatable superquadric (Kindlmann 2004, sharpness 3), written into the page with no dependencies. It reaches each eigenvalue along its eigenvector, on a fixed scale. Its edges show the axes where an ellipsoid's outline can mislead, and it turns round about e1 when $\lambda_2 = \lambda_3$. It is not a diffusivity profile.
+- Image toggle: signal, or the direction of e1 or e2 in the usual DTI colours (red x, green y, blue z, in the scanner frame).
 - Defaults are illustrative: HA +60° to -60°, IA 0°, RA 40°, eigenvalues 1.7, 1.0, 0.5 × 10⁻³ mm²/s, b = 500 s/mm².
 
 ## Tests

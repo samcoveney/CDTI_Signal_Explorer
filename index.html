@@ -53,7 +53,11 @@
   .row .out { font-family: var(--font-mono); margin-left: auto; }
   button { font: 500 .875rem var(--font-body); color: var(--fg); background: var(--chip-on); border: 1px solid var(--line); border-radius: 5px; padding: 4px 11px; cursor: pointer; }
   button:hover { border-color: var(--focus); }
-  .readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 16px; margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  button[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 0 0 0 1px var(--focus); }
+  .scale[hidden] { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; }
+  .chip b { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--line); }
+  .readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 4px 16px; margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
   .readout div { min-width: 0; }
   .readout dt { color: var(--muted); font-size: .8125rem; }
   .readout dd { margin: 0; font: 500 .9375rem var(--font-mono); }
@@ -86,10 +90,22 @@
   <div class="main">
   <section class="views">
     <div class="view">
-      <h2>Image: signal in every voxel</h2>
+      <h2 id="imageTitle">Image: signal in every voxel</h2>
       <p>Click a voxel in the wall to select it. The corner arrows show the b-vector's in-plane part.</p>
       <canvas id="image" role="img" aria-label="Diffusion-weighted image of the left ventricular wall"></canvas>
-      <div class="scale"><span>S/S₀ = 0</span><i></i><span>1</span></div>
+      <div class="row" role="group" aria-label="What the image shows">
+        <span>Show</span>
+        <button type="button" data-show="signal" aria-pressed="true">Signal</button>
+        <button type="button" data-show="e1" aria-pressed="false">e1 direction</button>
+        <button type="button" data-show="e2" aria-pressed="false">e2 direction</button>
+      </div>
+      <div class="scale" id="signalScale"><span>S/S₀ = 0</span><i></i><span>1</span></div>
+      <div class="scale" id="colorKey" hidden>
+        <span class="chip"><b style="background:#f00"></b>x</span>
+        <span class="chip"><b style="background:#0f0"></b>y</span>
+        <span class="chip"><b style="background:#00f"></b>z</span>
+        <span>brightness = how far along that axis</span>
+      </div>
     </div>
     <div class="view">
       <h2>Sphere: signal in the selected voxel</h2>
@@ -112,6 +128,8 @@
     <div><dt>Diffusivity along b-vector</dt><dd id="rAdc"></dd></div>
     <div><dt>S/S₀ in voxel</dt><dd id="rS"></dd></div>
     <div><dt>S/S₀ range in image</dt><dd id="rRange"></dd></div>
+    <div><dt>e1 (x, y, z)</dt><dd id="rE1"></dd></div>
+    <div><dt>e2 (x, y, z)</dt><dd id="rE2"></dd></div>
   </dl>
   </div>
 
@@ -269,12 +287,19 @@ function viewBasis(az, el) {
 }
 const toView = (vector, basis) => [dot(vector, basis.u), dot(vector, basis.v), dot(vector, basis.w)];
 
+
+// A direction as a colour, as in brain DTI: red x, green y, blue z. Absolute values, because e and -e
+// are the same axis. Returns 0-255 for a unit vector.
+function directionColor(e) {
+  return e.map((value) => Math.round(Math.min(1, Math.abs(value)) * 255));
+}
 // END signal_math
 
 const $ = (id) => document.getElementById(id);
 const voxels = wallVoxels();
 let selected = voxels.find((v) => v.i === 25 && v.j === 16);  // mid-wall, on the +x side
 let g = norm([1, 0, 0]);
+let show = "signal";  // what the image shows: signal, e1 or e2
 
 // The sphere's fixed view is the same as the image's: x right, y up, z out of the screen. The rim is
 // the image plane and the centre is through-plane. g and -g give the same signal, so the visible
@@ -310,9 +335,15 @@ function drawImage(p) {
 
   let lo = Infinity, hi = -Infinity;
   for (const voxel of voxels) {
-    const s = signal(voxelTensor(voxel, p.rules), p.lambdas, g, p.b);
+    const tensor = voxelTensor(voxel, p.rules);
+    const s = signal(tensor, p.lambdas, g, p.b);
     lo = Math.min(lo, s); hi = Math.max(hi, s);
-    ctx.fillStyle = grey(s);
+    if (show === "signal") {
+      ctx.fillStyle = grey(s);
+    } else {
+      const [red, green, blue] = directionColor(tensor[show]);
+      ctx.fillStyle = `rgb(${red},${green},${blue})`;
+    }
     // Rows flipped so +y is up. Whole-pixel edges keep the voxels crisp.
     const x0 = Math.round(voxel.i * cell), x1 = Math.round((voxel.i + 1) * cell);
     const y0 = Math.round((N - 1 - voxel.j) * cell), y1 = Math.round((N - voxel.j) * cell);
@@ -330,9 +361,12 @@ function drawImage(p) {
   }
   ctx.stroke();
 
-  // Selected voxel.
-  ctx.strokeStyle = "#ffb000";
-  ctx.lineWidth = Math.max(2, 2.5 * px);
+  // Selected voxel, with a dark edge so it shows on the colour maps too.
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = Math.max(3, 4.5 * px);
+  ctx.strokeRect(selected.i * cell, (N - 1 - selected.j) * cell, cell, cell);
+  ctx.strokeStyle = show === "signal" ? "#ffb000" : "#fff";
+  ctx.lineWidth = Math.max(2, 2 * px);
   ctx.strokeRect(selected.i * cell, (N - 1 - selected.j) * cell, cell, cell);
 
   // The b-vector's in-plane part, at the top right, both ways since g and -g are equivalent.
@@ -569,6 +603,13 @@ function render() {
   $("rAdc").textContent = `${diffusivity(tensor, p.lambdas, g).toFixed(2)} ×10⁻³ mm²/s`;
   $("rS").textContent = signal(tensor, p.lambdas, g, p.b).toFixed(3);
   $("rRange").textContent = `${lo.toFixed(3)} to ${hi.toFixed(3)}`;
+  const vector = (e) => e.map((v) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)).join(", ");
+  $("rE1").textContent = vector(tensor.e1);
+  $("rE2").textContent = vector(tensor.e2);
+  $("imageTitle").textContent = show === "signal" ? "Image: signal in every voxel" : `Image: direction of ${show} in every voxel`;
+  $("signalScale").hidden = show !== "signal";
+  $("colorKey").hidden = show === "signal";
+  document.querySelectorAll("button[data-show]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.show === show)));
 }
 
 // Inputs. The eigenvalues stay ordered: moving one pushes its neighbours along.
@@ -646,6 +687,10 @@ glyphCanvas.addEventListener("keydown", (event) => {
   turn(step[0], step[1]);
 });
 $("resetView").addEventListener("click", () => { view = { ...DEFAULT_VIEW }; render(); });
+
+document.querySelectorAll("button[data-show]").forEach((button) => {
+  button.addEventListener("click", () => { show = button.dataset.show; render(); });
+});
 
 // Clicking a wall voxel selects it; clicks elsewhere do nothing.
 $("image").addEventListener("click", (event) => {
