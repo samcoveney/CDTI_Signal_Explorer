@@ -3,7 +3,7 @@
 An interactive view of one diffusion-weighted image of a mid-ventricular short-axis slice. Move the
 b-vector and watch the signal change in every voxel, with $S/S_0 = \exp(-b\,\mathbf{g}^T\mathbf{D}\,\mathbf{g})$.
 
-**Live version:** <!-- TODO: GitHub Pages URL -->
+**Live version:** https://samcoveney.github.io/CDTI_Signal_Explorer/
 **Related:** [CDTI Angles Explorer](https://github.com/samcoveney/CDTI_Angles_Explorer)
 
 ## Run it locally
